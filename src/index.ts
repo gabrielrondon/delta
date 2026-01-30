@@ -89,10 +89,18 @@ app.post('/init', async (c) => {
     const storage = await import('./services/storage.service.js');
     const authService = await import('./services/auth.service.js');
 
-    // Create first project
-    const project = await storage.createProject('admin', 'Production Project', 'pro');
+    // Try to create project, or get existing one
+    let project;
+    try {
+      project = await storage.createProject('admin', 'Production Project', 'pro');
+    } catch (error) {
+      // Project already exists, get it
+      const projects = await storage.listProjects('admin');
+      project = projects[0];
+      if (!project) throw new Error('No projects found');
+    }
 
-    // Generate API key
+    // Generate new API key
     const { apiKey, rawKey } = await authService.createApiKey(project.id);
 
     return c.json({
