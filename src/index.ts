@@ -83,6 +83,38 @@ app.post('/setup', async (c) => {
   }
 });
 
+// Initialize first project (one-time, remove in production)
+app.post('/init', async (c) => {
+  try {
+    const storage = await import('./services/storage.service.js');
+    const authService = await import('./services/auth.service.js');
+
+    // Create first project
+    const project = await storage.createProject('admin', 'Production Project', 'pro');
+
+    // Generate API key
+    const { apiKey, rawKey } = await authService.createApiKey(project.id);
+
+    return c.json({
+      success: true,
+      data: {
+        project,
+        api_key: {
+          id: apiKey.id,
+          key: rawKey,
+          preview: apiKey.key_preview,
+        },
+        message: 'SAVE THIS API KEY - it will not be shown again!',
+      },
+    });
+  } catch (error) {
+    return c.json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Initialization failed',
+    }, 500);
+  }
+});
+
 // ============================================================================
 // Authentication Middleware
 // ============================================================================
