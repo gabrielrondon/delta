@@ -1,0 +1,12 @@
+node_modules
+.env
+.env.local
+*.log
+.git
+.gitignore
+README.md
+docker-compose.yml
+Dockerfile
+.DS_Store
+coverage
+tests

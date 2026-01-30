@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  # TimescaleDB (PostgreSQL with TimescaleDB extension)
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: delta-timescaledb
+    environment:
+      POSTGRES_USER: delta
+      POSTGRES_PASSWORD: delta_password
+      POSTGRES_DB: delta
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U delta"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: delta-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Delta API
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: delta-api
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://delta:delta_password@timescaledb:5432/delta
+      REDIS_URL: redis://redis:6379
+      MAX_SNAPSHOT_SIZE_MB: 10
+      RATE_LIMIT_FREE: 100
+      RATE_LIMIT_PRO: 1000
+      RATE_LIMIT_ENTERPRISE: 10000
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Delta Worker (for delta computation)
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: delta-worker
+    command: ["bun", "run", "src/workers/delta.worker.ts"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://delta:delta_password@timescaledb:5432/delta
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  timescale-data:
+  redis-data:
