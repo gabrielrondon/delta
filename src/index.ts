@@ -58,6 +58,30 @@ app.get('/health', async (c) => {
   });
 });
 
+// Temporary migration endpoint (remove in production)
+app.post('/setup', async (c) => {
+  try {
+    const { readFileSync } = await import('fs');
+    const { join } = await import('path');
+    const { query } = await import('./db/client.js');
+
+    const schemaPath = join(import.meta.dir, 'db', 'schema.sql');
+    const schema = readFileSync(schemaPath, 'utf-8');
+
+    await query(schema);
+
+    return c.json({
+      success: true,
+      message: 'Database schema created successfully',
+    });
+  } catch (error) {
+    return c.json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Migration failed',
+    }, 500);
+  }
+});
+
 // ============================================================================
 // Authentication Middleware
 // ============================================================================
