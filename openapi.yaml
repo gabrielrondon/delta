@@ -1,0 +1,966 @@
+openapi: 3.0.3
+info:
+  title: Delta API
+  description: |
+    **Data Versioning & Temporal Analytics Platform**
+
+    Delta captures and preserves the history of API data changes over time.
+    It automatically computes deltas between consecutive snapshots and provides
+    powerful temporal queries.
+
+    ## Authentication
+    All endpoints require an API key in the Authorization header:
+    ```
+    Authorization: Bearer dk_proj_your_api_key_here
+    ```
+
+    ## Rate Limits
+    - **Free tier**: 100 requests/hour
+    - **Pro tier**: 1,000 requests/hour
+    - **Enterprise tier**: 10,000 requests/hour
+
+    Rate limit info is returned in response headers:
+    - `X-RateLimit-Limit`: Total requests allowed per hour
+    - `X-RateLimit-Remaining`: Requests remaining
+    - `X-RateLimit-Reset`: When the limit resets (ISO 8601)
+
+  version: 0.1.0
+  contact:
+    name: Delta Support
+    url: https://github.com/gabrielrondon/delta
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://delta-production-642e.up.railway.app
+    description: Production server
+  - url: http://localhost:3000
+    description: Local development
+
+tags:
+  - name: Health
+    description: System health checks
+  - name: Projects
+    description: Project management
+  - name: Endpoints
+    description: Endpoint (data source) management
+  - name: Snapshots
+    description: Snapshot capture and retrieval
+  - name: Deltas
+    description: Delta computation and comparison
+  - name: Webhooks
+    description: Webhook receivers
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Check if the API and database are healthy
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [healthy, unhealthy]
+                  timestamp:
+                    type: string
+                    format: date-time
+                  database:
+                    type: string
+                    enum: [connected, disconnected]
+
+  /v1/projects:
+    post:
+      summary: Create a new project
+      description: Creates a new project and generates an API key
+      tags:
+        - Projects
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+                  example: "My Production Project"
+      responses:
+        '200':
+          description: Project created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      project:
+                        $ref: '#/components/schemas/Project'
+                      api_key:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                          key:
+                            type: string
+                            description: API key (only shown once!)
+                            example: "dk_proj_abc123..."
+                          preview:
+                            type: string
+                            example: "dk_proj_...123"
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    get:
+      summary: List all projects
+      description: Returns all projects for the authenticated user
+      tags:
+        - Projects
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Project'
+
+  /v1/projects/{id}:
+    get:
+      summary: Get project by ID
+      tags:
+        - Projects
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Project details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Project'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      summary: Delete a project
+      description: Deletes a project and all associated data (endpoints, snapshots, deltas)
+      tags:
+        - Projects
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Project deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      deleted:
+                        type: boolean
+
+  /v1/endpoints:
+    post:
+      summary: Create a new endpoint
+      description: An endpoint represents a data source being tracked
+      tags:
+        - Endpoints
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - project_id
+                - name
+              properties:
+                project_id:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                  example: "users"
+                  description: Endpoint identifier (e.g., 'users', 'products')
+      responses:
+        '200':
+          description: Endpoint created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Endpoint'
+
+    get:
+      summary: List endpoints for a project
+      tags:
+        - Endpoints
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of endpoints
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Endpoint'
+
+  /v1/endpoints/{id}:
+    get:
+      summary: Get endpoint by ID
+      tags:
+        - Endpoints
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Endpoint details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Endpoint'
+
+    delete:
+      summary: Delete an endpoint
+      tags:
+        - Endpoints
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Endpoint deleted successfully
+
+  /v1/snapshots:
+    post:
+      summary: Create a new snapshot
+      description: |
+        Captures a snapshot of your data. The system will automatically:
+        1. Store the snapshot with timestamp
+        2. Calculate SHA256 hash for deduplication
+        3. Queue a delta computation job (if previous snapshot exists)
+
+        **Max payload size**: 10MB
+      tags:
+        - Snapshots
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - endpoint_id
+                - data
+              properties:
+                endpoint_id:
+                  type: string
+                  format: uuid
+                  description: ID of the endpoint to store data for
+                data:
+                  type: object
+                  description: Your JSON data (any structure)
+                  example:
+                    users:
+                      - id: 1
+                        name: Alice
+                        email: alice@example.com
+                metadata:
+                  type: object
+                  description: Optional metadata
+                  example:
+                    source: "cron-job"
+                    version: "1.0"
+      responses:
+        '200':
+          description: Snapshot created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      snapshot:
+                        $ref: '#/components/schemas/SnapshotResponse'
+                      is_duplicate:
+                        type: boolean
+                        description: True if snapshot has same hash as previous within 1 hour
+                      queued_for_delta:
+                        type: boolean
+                        description: True if delta computation was queued
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '413':
+          description: Payload too large (max 10MB)
+
+    get:
+      summary: List snapshots
+      description: Query snapshots with optional filters
+      tags:
+        - Snapshots
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: endpoint_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Filter by endpoint
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Start date (ISO 8601)
+          example: "2024-01-01T00:00:00Z"
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: End date (ISO 8601)
+          example: "2024-12-31T23:59:59Z"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: List of snapshots
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SnapshotResponse'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  /v1/snapshots/{id}:
+    get:
+      summary: Get a specific snapshot
+      description: Returns full snapshot data including the JSON payload
+      tags:
+        - Snapshots
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: endpoint_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Endpoint ID for authorization check
+      responses:
+        '200':
+          description: Snapshot details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Snapshot'
+
+  /v1/snapshots/latest/{endpoint_id}:
+    get:
+      summary: Get latest snapshot for endpoint
+      tags:
+        - Snapshots
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: endpoint_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Latest snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Snapshot'
+        '404':
+          description: No snapshots found for this endpoint
+
+  /v1/deltas:
+    get:
+      summary: List computed deltas
+      description: Returns deltas computed by the background worker
+      tags:
+        - Deltas
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: endpoint_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of deltas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Delta'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  /v1/deltas/compare:
+    post:
+      summary: Compare two snapshots on-demand
+      description: |
+        Computes delta between any two snapshots immediately (synchronous).
+        Useful for comparing non-consecutive snapshots.
+      tags:
+        - Deltas
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - endpoint_id
+                - from_snapshot_id
+                - to_snapshot_id
+              properties:
+                endpoint_id:
+                  type: string
+                  format: uuid
+                from_snapshot_id:
+                  type: string
+                  format: uuid
+                to_snapshot_id:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Delta computed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      from_snapshot:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                          timestamp:
+                            type: string
+                            format: date-time
+                          data_hash:
+                            type: string
+                      to_snapshot:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                          timestamp:
+                            type: string
+                            format: date-time
+                          data_hash:
+                            type: string
+                      diff:
+                        type: array
+                        description: JSON Patch operations (RFC 6902)
+                        items:
+                          $ref: '#/components/schemas/JsonPatchOperation'
+                      changes_count:
+                        type: integer
+                      similarity_score:
+                        type: number
+                        format: float
+                        minimum: 0
+                        maximum: 1
+
+  /v1/webhooks/{project_id}/{endpoint_id}/{token}:
+    post:
+      summary: Receive webhook data
+      description: |
+        Webhook endpoint for receiving data from external systems.
+        The URL is unique per endpoint and includes a security token.
+
+        **No authentication required** - the token in the URL provides security.
+      tags:
+        - Webhooks
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: endpoint_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Webhook security token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  type: object
+                  description: Your JSON data
+              example:
+                data:
+                  users:
+                    - id: 1
+                      name: Alice
+      responses:
+        '200':
+          description: Webhook received and snapshot created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      snapshot_id:
+                        type: string
+                        format: uuid
+                      timestamp:
+                        type: string
+                        format: date-time
+                      is_duplicate:
+                        type: boolean
+        '401':
+          description: Invalid webhook token
+        '404':
+          description: Endpoint not found
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API Key
+      description: |
+        API key authentication. Include your API key in the Authorization header:
+        ```
+        Authorization: Bearer dk_proj_your_api_key_here
+        ```
+
+  schemas:
+    Project:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+        name:
+          type: string
+        tier:
+          type: string
+          enum: [free, pro, enterprise]
+        created_at:
+          type: string
+          format: date-time
+
+    Endpoint:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    Snapshot:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        endpoint_id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+        data:
+          type: object
+          description: Your JSON data
+        data_hash:
+          type: string
+          description: SHA256 hash of data
+        size_bytes:
+          type: integer
+        source:
+          type: string
+          enum: [sdk, webhook, polling]
+        metadata:
+          type: object
+
+    SnapshotResponse:
+      type: object
+      description: Snapshot without full data payload (for list views)
+      properties:
+        id:
+          type: string
+          format: uuid
+        endpoint_id:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+        data_hash:
+          type: string
+        size_bytes:
+          type: integer
+        source:
+          type: string
+          enum: [sdk, webhook, polling]
+
+    Delta:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        endpoint_id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        from_snapshot_id:
+          type: string
+          format: uuid
+        to_snapshot_id:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+        diff:
+          type: array
+          description: JSON Patch operations (RFC 6902)
+          items:
+            $ref: '#/components/schemas/JsonPatchOperation'
+        changes_count:
+          type: integer
+          description: Total number of changes
+        similarity_score:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: Similarity between snapshots (1 = identical, 0 = completely different)
+
+    JsonPatchOperation:
+      type: object
+      description: JSON Patch operation (RFC 6902)
+      required:
+        - op
+        - path
+      properties:
+        op:
+          type: string
+          enum: [add, remove, replace, move, copy, test]
+        path:
+          type: string
+          description: JSON Pointer path
+          example: "/users/0/email"
+        value:
+          description: New value (for add/replace operations)
+        from:
+          type: string
+          description: Source path (for move/copy operations)
+
+    PaginationMeta:
+      type: object
+      properties:
+        total:
+          type: integer
+          description: Total number of items
+        limit:
+          type: integer
+          description: Items per page
+        offset:
+          type: integer
+          description: Starting offset
+
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              example: "VALIDATION_ERROR"
+            message:
+              type: string
+              example: "Invalid request body"
+            details:
+              type: array
+              items:
+                type: object
+
+  responses:
+    Unauthorized:
+      description: Unauthorized - Invalid or missing API key
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            success: false
+            error:
+              code: "UNAUTHORIZED"
+              message: "Invalid API key"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            success: false
+            error:
+              code: "NOT_FOUND"
+              message: "Resource not found"
+
+    ValidationError:
+      description: Validation error in request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            success: false
+            error:
+              code: "VALIDATION_ERROR"
+              message: "Invalid request body"
+              details:
+                - field: "name"
+                  message: "Required field"
+
+    RateLimitExceeded:
+      description: Rate limit exceeded
+      headers:
+        X-RateLimit-Limit:
+          schema:
+            type: integer
+          description: Requests allowed per hour
+        X-RateLimit-Remaining:
+          schema:
+            type: integer
+          description: Requests remaining
+        X-RateLimit-Reset:
+          schema:
+            type: string
+            format: date-time
+          description: When the limit resets
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            success: false
+            error:
+              code: "RATE_LIMIT_EXCEEDED"
+              message: "Rate limit exceeded. Limit: 100 requests per hour"
+
+security:
+  - BearerAuth: []
