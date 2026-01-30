@@ -27,13 +27,6 @@ COPY --from=builder /app/src ./src
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
 
-# Create non-root user
-RUN addgroup --system --gid 1001 delta && \
-    adduser --system --uid 1001 delta && \
-    chown -R delta:delta /app
-
-USER delta
-
 EXPOSE 3000
 
 # Health check
