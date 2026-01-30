@@ -2,7 +2,7 @@
 # Delta - Dockerfile
 # ============================================================================
 
-FROM oven/bun:1 as base
+FROM oven/bun:1-debian as base
 WORKDIR /app
 
 # Install dependencies
