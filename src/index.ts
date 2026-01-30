@@ -65,14 +65,15 @@ app.post('/setup', async (c) => {
     const { join } = await import('path');
     const { query } = await import('./db/client.js');
 
-    const schemaPath = join(import.meta.dir, 'db', 'schema.sql');
+    // Use simplified PostgreSQL schema (Railway doesn't have TimescaleDB)
+    const schemaPath = join(import.meta.dir, 'db', 'schema-postgres.sql');
     const schema = readFileSync(schemaPath, 'utf-8');
 
     await query(schema);
 
     return c.json({
       success: true,
-      message: 'Database schema created successfully',
+      message: 'Database schema created successfully (PostgreSQL mode - without TimescaleDB features)',
     });
   } catch (error) {
     return c.json({
